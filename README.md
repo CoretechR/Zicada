@@ -1,6 +1,6 @@
 # Zicada - DIY Zigbee Multisensor
 
-![](images/Zicada.jpg)
+![](images/Zicada.JPG)
 
 ## Overview
 
