@@ -1,0 +1,101 @@
+// Copyright (c) 2024 Nordic Semiconductor ASA
+// SPDX-License-Identifier: Apache-2.0
+
+/dts-v1/;
+#include <nordic/nrf52840_qiaa.dtsi>
+#include "nrf52_zicada-pinctrl.dtsi"
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+
+/ {
+	model = "nRF52840 Zicada Zigbee Node";
+	compatible = "nrf52_zicada";
+
+	chosen {
+		zephyr,sram = &sram0;
+		zephyr,flash = &flash0;
+		zephyr,ieee802154 = &ieee802154;
+	};
+
+	zephyr,user {
+		io-channels = <&adc 0>;
+	};
+
+	leds {
+		compatible = "gpio-leds";
+		led0: led_0 {
+			gpios = <&gpio0 8 0>;
+			label = "LED 0";
+		};
+		compatible = "gpio-leds";
+	};
+
+	buttons {
+		compatible = "gpio-keys";
+		button0: button_0 {
+			gpios = <&gpio0 4 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			label = "Button 0";
+			zephyr,code = <INPUT_KEY_0>;
+		};
+	};
+
+	hall_sensor_input: hall-sensor-input {
+		compatible = "nordic,gpio-pins";
+		gpios = <&gpio0 12 (GPIO_ACTIVE_LOW)>;
+		status = "okay";
+	};
+
+	aliases {
+		led0 = &led0;
+		button0 = &button0;
+		watchdog0 = &wdt0;
+	};
+};
+
+&uicr {
+	gpio-as-nreset;
+};
+
+&gpiote {
+	status = "okay";
+};
+
+&gpio0 {
+	status = "okay";
+};
+
+&gpio1 {
+	status = "okay";
+};
+
+&ieee802154 {
+        status = "okay";
+};
+
+&adc {
+	status = "okay";
+};
+
+&nfct {
+	status = "disabled";
+};
+
+&i2c0 {
+	ti_hdc: hdc2080@40 {
+		compatible = "ti,hdc2080";
+		status = "ok";
+		reg = <0x40>;
+		//int-gpios = <&gpio0 8 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+	};
+
+	status = "okay";
+	pinctrl-0 = <&i2c0_default>;
+	pinctrl-names = "default";
+};
+
+&pinctrl {
+	i2c0_default: i2c0_default {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SDA, 0, 26)>, <NRF_PSEL(TWIM_SCL, 1, 9)>;
+		};
+	};
+};

@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "zicadaLib")(type "KiCad")(uri "${KIPRJMOD}/project_libraries/symbols/zicadaLib.kicad_sym")(options "")(descr ""))
+)
