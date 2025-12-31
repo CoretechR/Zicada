@@ -4505,11 +4505,13 @@
 		(effects
 			(font
 				(size 1.27 1.27)
+				(thickness 0.254)
+				(bold yes)
 			)
 		)
 		(uuid "066e8231-1e24-49fa-b0ac-6a426987a6f1")
 	)
-	(text "Ambient light sensor"
+	(text "Ambient Light Sensor"
 		(exclude_from_sim no)
 		(at 236.474 101.6 0)
 		(effects
@@ -11913,6 +11915,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C90462"
+			(at 251.46 119.38 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "2"
 			(uuid "bdf5109e-c6bf-4fbe-b188-f656fe48dc0a")
 		)
@@ -14273,7 +14284,7 @@
 				(hide yes)
 			)
 		)
-		(property "LCSC" "C3761461"
+		(property "LCSC" "C207021"
 			(at 205.74 34.29 90)
 			(effects
 				(font
