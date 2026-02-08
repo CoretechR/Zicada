@@ -8,7 +8,7 @@
 #define ZB_DEVICE_VER_TEMPERATURE_SENSOR 0
 
 // Zicada sensor numer of IN (server) clusters
-#define ZB_ZICADA_IN_CLUSTER_NUM 5
+#define ZB_ZICADA_IN_CLUSTER_NUM 6
 
 // Zicada sensor number of OUT (client) clusters
 #define ZB_ZICADA_OUT_CLUSTER_NUM 2
@@ -38,6 +38,7 @@
 		identify_server_attr_list,													\
 		temperature_measurement_attr_list,											\
 		humidity_measurement_attr_list,												\
+		illuminance_measurement_attr_list,											\
 		on_off_client_attr_list,													\
 		power_config_server_attr_list)												\
 zb_zcl_cluster_desc_t cluster_list_name[] =											\
@@ -74,6 +75,13 @@ zb_zcl_cluster_desc_t cluster_list_name[] =											\
 		ZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT,									\
 		ZB_ZCL_ARRAY_SIZE(humidity_measurement_attr_list, zb_zcl_attr_t),			\
 		(humidity_measurement_attr_list),											\
+		ZB_ZCL_CLUSTER_SERVER_ROLE,													\
+		ZB_ZCL_MANUF_CODE_INVALID													\
+	),																				\
+	ZB_ZCL_CLUSTER_DESC(															\
+		ZB_ZCL_CLUSTER_ID_ILLUMINANCE_MEASUREMENT,									\
+		ZB_ZCL_ARRAY_SIZE(illuminance_measurement_attr_list, zb_zcl_attr_t),		\
+		(illuminance_measurement_attr_list),										\
 		ZB_ZCL_CLUSTER_SERVER_ROLE,													\
 		ZB_ZCL_MANUF_CODE_INVALID													\
 	),																				\
@@ -117,6 +125,7 @@ zb_zcl_cluster_desc_t cluster_list_name[] =											\
 			ZB_ZCL_CLUSTER_ID_IDENTIFY,												\
 			ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT,										\
 			ZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT,								\
+			ZB_ZCL_CLUSTER_ID_ILLUMINANCE_MEASUREMENT,								\
 			ZB_ZCL_CLUSTER_ID_POWER_CONFIG,											\
 			ZB_ZCL_CLUSTER_ID_IDENTIFY,												\
 			ZB_ZCL_CLUSTER_ID_ON_OFF												\

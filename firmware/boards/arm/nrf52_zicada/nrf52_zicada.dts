@@ -87,6 +87,12 @@
 		//int-gpios = <&gpio0 8 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
 	};
 
+	ti_opt: opt3001@44 {
+		compatible = "ti,opt3001";
+		status = "ok";
+		reg = <0x44>;
+	};	
+
 	status = "okay";
 	pinctrl-0 = <&i2c0_default>;
 	pinctrl-names = "default";

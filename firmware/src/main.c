@@ -1,4 +1,4 @@
-// 2025 Maximilian Kern
+// 2026 Maximilian Kern
 // Based on Glen Akins' homebrew Zigbee Devices: https://github.com/bikerglen/homebrew_zigbee_devices
 
 //---------------------------------------------------------------------------------------------
@@ -13,6 +13,8 @@
 #include <dk_buttons_and_leds.h>
 #include <ram_pwrdn.h>
 #include <drivers/include/nrfx_saadc.h>
+#include <math.h>
+#include <zephyr/drivers/i2c.h>
 
 #include <zboss_api.h>
 #include <zboss_api_addons.h>
@@ -37,7 +39,7 @@
 #define ZICADA_INIT_BASIC_HW_VERSION		01									// Version of the hardware of the device (1 byte).
 #define ZICADA_INIT_BASIC_MANUF_NAME		"kernm.de"							// Manufacturer name (32 bytes).
 #define ZICADA_INIT_BASIC_MODEL_ID			"Zicada"							// Model number assigned by the manufacturer (32-bytes long string).
-#define ZICADA_INIT_BASIC_DATE_CODE			"20250801"							// Date provided by the manufacturer of the device in ISO 8601 format (YYYYMMDD), for the first 8 bytes. The remaining 8 bytes are manufacturer-specific.
+#define ZICADA_INIT_BASIC_DATE_CODE			"20260201"							// Date provided by the manufacturer of the device in ISO 8601 format (YYYYMMDD), for the first 8 bytes. The remaining 8 bytes are manufacturer-specific.
 #define ZICADA_INIT_BASIC_POWER_SOURCE		ZB_ZCL_BASIC_POWER_SOURCE_BATTERY	// Type of power source or sources available for the device. For possible values, see section 3.2.2.2.8 of the ZCL specification.
 #define ZICADA_INIT_BASIC_LOCATION_DESC		"Home"								// Description of the physical location of the device (16 bytes). You can modify it during the commisioning process.
 #define ZICADA_INIT_BASIC_PH_ENV			ZB_ZCL_BASIC_ENV_UNSPECIFIED		// Description of the type of physical environment. For possible values, see section 3.2.2.2.10 of the ZCL specification.
@@ -66,6 +68,9 @@ static const struct gpio_dt_spec hall_sensor = GPIO_DT_SPEC_GET(DT_NODELABEL(hal
 // Temperature and humidity sensor
 const struct device *const hdc20 = DEVICE_DT_GET_ONE(ti_hdc2080);
 
+// Light sensor
+const struct device *const opt30 = DEVICE_DT_GET_ONE(ti_opt3001);
+
 // read and report battery voltage after an initial delay after joining the network 
 // then read and report battery voltage after the specified period elapses.
 #define BATTERY_CHECK_PERIOD_MSEC (1000 * 60 * 60 * 6) // 6 hours
@@ -84,9 +89,19 @@ const struct device *const hdc20 = DEVICE_DT_GET_ONE(ti_hdc2080);
 // Zigbee Cluster Library 4.7.2.1.1: MeasuredValue = 100x water content in % */
 #define ZCL_HUMIDITY_MEASUREMENT_MEASURED_VALUE_MULTIPLIER 100
 
+struct opt3001_config_header {
+    struct i2c_dt_spec i2c;
+};
+
+// OPT3001 register definitions
+#define OPT3001_REG_CONFIG   0x01
+#define OPT3001_SHUTDOWN     0x0010  // Mode=00 (Shutdown), Range=Auto
+#define OPT3001_CONTINUOUS   0xCE10  // Mode=11 (Continuous), Range=Auto, 100ms 
+
 //---------------------------------------------------------------------------------------------
 // typedefs
 //
+
 
 // attribute storage for battery power config
 struct zb_zcl_power_attrs {
@@ -105,12 +120,20 @@ struct zb_zcl_humidity_measurement_attrs_t
 	zb_int16_t max_measure_value;
 };
 
+struct zb_zcl_illuminance_measurement_attrs_t
+{
+	zb_int16_t measure_value;
+	zb_int16_t min_measure_value;
+	zb_int16_t max_measure_value;
+};
+
 // attribute storage for our device
 struct zb_device_ctx {
 	zb_zcl_basic_attrs_ext_t basic_attr;
 	zb_zcl_identify_attrs_t identify_attr;
 	zb_zcl_temp_measurement_attrs_t temp_attrs;
 	struct zb_zcl_humidity_measurement_attrs_t humidity_attrs;
+	struct zb_zcl_illuminance_measurement_attrs_t illuminance_attrs;
 	zb_zcl_on_off_attrs_t on_off_attrs;
 	zb_zcl_power_attrs_t power_attr;
 };
@@ -214,6 +237,14 @@ ZB_ZCL_DECLARE_REL_HUMIDITY_MEASUREMENT_ATTRIB_LIST(
 	&dev_ctx.humidity_attrs.max_measure_value
 );
 
+// Declare attribute list for illuminance measurement (server).
+ZB_ZCL_DECLARE_ILLUMINANCE_MEASUREMENT_ATTRIB_LIST(
+	illuminance_measurement_attr_list,
+	&dev_ctx.illuminance_attrs.measure_value,
+	&dev_ctx.illuminance_attrs.min_measure_value,
+	&dev_ctx.illuminance_attrs.max_measure_value
+);
+
 // Declare attribute list for On/Off cluster (client).
 ZB_ZCL_DECLARE_ON_OFF_CLIENT_ATTRIB_LIST(
 	on_off_client_attr_list
@@ -248,6 +279,7 @@ ZB_DECLARE_ZICADA_CLUSTER_LIST(
 	identify_server_attr_list,
 	temperature_measurement_attr_list,
 	humidity_measurement_attr_list,
+	illuminance_measurement_attr_list,
 	on_off_client_attr_list,
 	power_config_server_attr_list
 );
@@ -268,6 +300,7 @@ ZBOSS_DECLARE_DEVICE_CTX_1_EP(
 // This allows for the initial values to be set correctly
 double measured_temperature = 0;
 double measured_humidity = 0;
+double measured_illuminance = 0;
 
 // Voltage - Capacity pair table from thunderboard react
 // Algorithm assumes the values are arranged in a descending order.
@@ -278,9 +311,20 @@ static voltage_capacity_pair_t vcPairs[] =
 { { 1450, 100 }, { 1350, 92 }, { 1300, 78 }, { 1250, 24 }, { 1220, 13 },
   { 1160, 5 }, { 1100, 2 }, { 900, 0 } };
 
+// change the opt3001 light sensor's mode by writing to its config register directly
+// This is a workaround because the driver can't be used to update the config register
+static int opt3001_write_mode(const struct device *dev, uint16_t mode_val) {
+    const struct opt3001_config_header *cfg = (const struct opt3001_config_header *)dev->config;
+    if (!device_is_ready(cfg->i2c.bus)) return -ENODEV;
+    
+    uint8_t tx[3] = { OPT3001_REG_CONFIG, mode_val >> 8, mode_val & 0xFF };
+    return i2c_write_dt(&cfg->i2c, tx, sizeof(tx));
+}
+
 //---------------------------------------------------------------------------------------------
 // main
 //
+
 
 int main (void)
 {
@@ -294,6 +338,12 @@ int main (void)
 		LOG_ERR("HDC20xx: device not ready");
 		return 0;
 	} else LOG_INF("HDC20xx: device ready");
+
+	// init OPT300x
+	if (!device_is_ready(opt30)) {
+		LOG_ERR("OPT300x: device not ready");
+		return 0;
+	} else LOG_INF("OPT300x: device ready");
 	
 	// get initial temperature and humidity
 	struct sensor_value temp, humidity;
@@ -303,6 +353,16 @@ int main (void)
 	measured_temperature = sensor_value_to_double(&temp);
 	measured_humidity = sensor_value_to_double(&humidity);
 	LOG_INF("Temp = %f C, RH = %f", measured_temperature, measured_humidity);
+	
+	// get initial ambient brightness
+	struct sensor_value brightness;
+	sensor_sample_fetch(opt30);
+	sensor_channel_get(opt30, SENSOR_CHAN_LIGHT, &brightness);
+	sensor_channel_get(opt30, SENSOR_CHAN_LIGHT, &brightness);
+	measured_illuminance = sensor_value_to_double(&brightness);
+	LOG_INF("Brightness = %f", measured_illuminance);
+	// force light sensor into shutdown mode
+	opt3001_write_mode(opt30, OPT3001_SHUTDOWN);
 
 	// init Zigbee
 	register_factory_reset_button (BUTTON_0);
@@ -355,9 +415,7 @@ static void check_temp_humidity(zb_bufid_t bufid){
 	measured_temperature = sensor_value_to_double(&temp);
 	
 	// Convert measured value to attribute value, as specified in ZCL
-	temperature_attribute =
-		(int16_t)(measured_temperature *
-			  ZCL_TEMPERATURE_MEASUREMENT_MEASURED_VALUE_MULTIPLIER);
+	temperature_attribute = (int16_t)(measured_temperature * ZCL_TEMPERATURE_MEASUREMENT_MEASURED_VALUE_MULTIPLIER);
 	//LOG_INF("Attribute T:%10d", temperature_attribute);
 
 	// Set ZCL attribute
@@ -369,6 +427,7 @@ static void check_temp_humidity(zb_bufid_t bufid){
 		(zb_uint8_t *)&temperature_attribute,
 		ZB_FALSE
 	);
+
 	if (status) {
 		LOG_ERR("Failed to set ZCL attribute: %d", status);
 	} else{
@@ -383,9 +442,7 @@ static void check_temp_humidity(zb_bufid_t bufid){
 	measured_humidity = sensor_value_to_double(&humidity);
 	
 	// Convert measured value to attribute value, as specified in ZCL
-	humidity_attribute =
-		(int16_t)(measured_humidity *
-			  ZCL_HUMIDITY_MEASUREMENT_MEASURED_VALUE_MULTIPLIER);
+	humidity_attribute = (int16_t)(measured_humidity * ZCL_HUMIDITY_MEASUREMENT_MEASURED_VALUE_MULTIPLIER);
 	//LOG_INF("Attribute H:%10d", humidity_attribute);
 
 	// Set ZCL attribute
@@ -397,6 +454,7 @@ static void check_temp_humidity(zb_bufid_t bufid){
 		(zb_uint8_t *)&humidity_attribute,
 		ZB_FALSE
 	);
+
 	if (status) {
 		LOG_ERR("Failed to set ZCL attribute: %d", status);
 	} else{
@@ -410,6 +468,50 @@ static void check_temp_humidity(zb_bufid_t bufid){
 		if (zb_err) LOG_ERR("Failed to schedule temperature & humidity check alarm: %d", zb_err);
 		else LOG_INF("Scheduled next temperature & humidity check alarm in %ds", TEMP_HUMIDITY_CHECK_PERIOD_MSEC/1000);
 	}
+
+	// Trigger Single-Shot
+	// 0xC210 = Auto Range, 100ms
+	// 0xCA10 = Auto Range, 800ms
+	opt3001_write_mode(opt30, 0xCA10);
+	k_sleep(K_MSEC(850));
+	sensor_sample_fetch(opt30);
+
+	uint16_t illuminance_attribute = 0;
+
+	struct sensor_value illum;
+	sensor_channel_get(opt30, SENSOR_CHAN_LIGHT, &illum);
+	measured_illuminance = sensor_value_to_double(&illum);
+	
+	// Convert measured value to attribute value, as specified in ZCL
+	if (measured_illuminance > 1.0){
+		double val_calc = 10000.0 * log10(measured_illuminance) + 1.0;
+		if (val_calc > 0xFFFE) {
+            illuminance_attribute = 0xFFFE;
+        } else {
+            illuminance_attribute = (uint16_t)val_calc;
+        }
+	}
+	else {
+		illuminance_attribute = 0x0000;
+	}
+	//LOG_INF("Attribute I:%d", illuminance_attribute);
+	
+	// Set ZCL attribute
+	status = zb_zcl_set_attr_val(
+		SOURCE_ENDPOINT,										// 1
+		ZB_ZCL_CLUSTER_ID_ILLUMINANCE_MEASUREMENT,				// 0x0402
+		ZB_ZCL_CLUSTER_SERVER_ROLE,								// 1
+		ZB_ZCL_ATTR_ILLUMINANCE_MEASUREMENT_MEASURED_VALUE_ID,	// 0
+		(zb_uint8_t *)&illuminance_attribute,
+		ZB_FALSE
+	);
+
+	if (status) {
+		LOG_ERR("Failed to set ZCL attribute: %d", status);
+	} else{
+		LOG_INF("Illuminance attribute update: %d", illuminance_attribute);
+	}
+
 }
 
 //---------------------------------------------------------------------------------------------
@@ -608,6 +710,28 @@ static void configure_attribute_reporting (void){
 	memset(&reporting_info, 0, sizeof(reporting_info));
 	reporting_info.direction = ZB_ZCL_CONFIGURE_REPORTING_SEND_REPORT;
 	reporting_info.ep = SOURCE_ENDPOINT;
+	reporting_info.cluster_id = ZB_ZCL_CLUSTER_ID_ILLUMINANCE_MEASUREMENT;
+	reporting_info.cluster_role = ZB_ZCL_CLUSTER_SERVER_ROLE;
+	reporting_info.attr_id = ZB_ZCL_ATTR_ILLUMINANCE_MEASUREMENT_MEASURED_VALUE_ID;
+	reporting_info.dst.short_addr = 0x0000;
+	reporting_info.dst.endpoint = 1;
+	reporting_info.dst.profile_id = ZB_AF_HA_PROFILE_ID;
+	reporting_info.u.send_info.min_interval = RPT_MIN;
+	reporting_info.u.send_info.max_interval = RPT_MAX;
+	reporting_info.u.send_info.delta.u16 = 0x00;
+	reporting_info.u.send_info.reported_value.u16 = 0;
+	reporting_info.u.send_info.def_min_interval = RPT_MIN;
+	reporting_info.u.send_info.def_max_interval = RPT_MAX;
+	status = zb_zcl_put_reporting_info(&reporting_info, ZB_TRUE);  
+	if (status == RET_OK) {
+        LOG_INF("Illuminance reporting configured successfully");
+    } else {
+        LOG_ERR("Failed to configure illuminance reporting: %d", status);
+    }
+
+	memset(&reporting_info, 0, sizeof(reporting_info));
+	reporting_info.direction = ZB_ZCL_CONFIGURE_REPORTING_SEND_REPORT;
+	reporting_info.ep = SOURCE_ENDPOINT;
 	reporting_info.cluster_id = ZB_ZCL_CLUSTER_ID_POWER_CONFIG;
 	reporting_info.cluster_role = ZB_ZCL_CLUSTER_SERVER_ROLE;
 	reporting_info.attr_id = ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_PERCENTAGE_REMAINING_ID;
@@ -713,6 +837,11 @@ static void app_clusters_attr_init (void){
 	dev_ctx.humidity_attrs.measure_value = measured_humidity * ZCL_HUMIDITY_MEASUREMENT_MEASURED_VALUE_MULTIPLIER;
 	dev_ctx.humidity_attrs.min_measure_value = ZB_ZCL_REL_HUMIDITY_MEASUREMENT_MIN_VALUE_DEFAULT_VALUE;
 	dev_ctx.humidity_attrs.max_measure_value = ZB_ZCL_REL_HUMIDITY_MEASUREMENT_MAX_VALUE_DEFAULT_VALUE;
+
+	/* Light */
+	dev_ctx.illuminance_attrs.measure_value = measured_illuminance;
+	dev_ctx.illuminance_attrs.min_measure_value = ZB_ZCL_ATTR_ILLUMINANCE_MEASUREMENT_MIN_MEASURED_VALUE_MIN_VALUE;
+	dev_ctx.illuminance_attrs.max_measure_value = ZB_ZCL_ATTR_ILLUMINANCE_MEASUREMENT_MIN_MEASURED_VALUE_MIN_VALUE;
 
 	/* onOff */
 	dev_ctx.on_off_attrs.on_off = ZB_ZCL_ON_OFF_IS_ON;
