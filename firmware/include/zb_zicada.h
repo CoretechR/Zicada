@@ -18,7 +18,7 @@
 
 // Number of attributes for reporting on Zicada sensor
 // battery percentage remaining, battery alarm + battery voltage
-#define ZB_ZICADA_REPORT_ATTR_COUNT (ZB_ZCL_POWER_CONFIG_REPORT_ATTR_COUNT + 4)
+#define ZB_ZICADA_REPORT_ATTR_COUNT 4
 
 // Declare cluster list for Zicada sensor
 //
