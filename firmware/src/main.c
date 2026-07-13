@@ -73,14 +73,14 @@ const struct device *const opt30 = DEVICE_DT_GET_ONE(ti_opt3001);
 
 // read and report battery voltage after an initial delay after joining the network 
 // then read and report battery voltage after the specified period elapses.
-#define BATTERY_CHECK_PERIOD_MSEC (1000 * 60 * 60 * 6) // 6 hours
-#define BATTERY_CHECK_INITIAL_DELAY_MSEC (1000 * 60 * 1) // 1 minute
+#define BATTERY_CHECK_PERIOD_SEC (60 * 60 * 6) // 6 hours
+#define BATTERY_CHECK_INITIAL_DELAY_SEC (60 * 1) // 1 minute
 
-#define TEMP_HUMIDITY_CHECK_PERIOD_MSEC (1000 * 60 * 5) // 5 minutes
-#define TEMP_HUMIDITY_CHECK_INITIAL_DELAY_MSEC (1000 * 10) // 10 seconds
+#define TEMP_HUMIDITY_CHECK_PERIOD_SEC (60 * 5) // 5 minutes
+#define TEMP_HUMIDITY_CHECK_INITIAL_DELAY_SEC (10) // 10 seconds
 
-#define REJOIN_ATTEMPT_PERIOD_MSEC (1000 * 60 * 5) // 5 minutes
-#define REJOIN_ATTEMPT_INITIAL_DELAY_MSEC (1000 * 30) // 30 seconds
+#define REJOIN_ATTEMPT_PERIOD_SEC (60 * 5) // 5 minutes
+#define REJOIN_ATTEMPT_INITIAL_DELAY_SEC 30 // 30 seconds
 
 #define CONTACT_LED_INDICATION_DURATION_MSEC 500  // 500ms LED flash
 
@@ -368,7 +368,7 @@ int main (void)
 	register_factory_reset_button (BUTTON_0);
 	zigbee_erase_persistent_storage (ERASE_PERSISTENT_CONFIG);
 	zb_set_ed_timeout (ED_AGING_TIMEOUT_64MIN);
-    zb_set_keepalive_timeout (ZB_MILLISECONDS_TO_BEACON_INTERVAL(3600*1000));
+	zb_set_keepalive_timeout ((zb_time_t)3600 * ZB_TIME_ONE_SECOND);
 
 	// send things to endpoint 1 on the coordinator
 	dest_ctx.short_addr = DEST_SHORT_ADDR;
@@ -464,9 +464,9 @@ static void check_temp_humidity(zb_bufid_t bufid){
 	if(ZB_JOINED()){
 		zb_ret_t zb_err = ZB_SCHEDULE_APP_ALARM(
 			check_temp_humidity, 0,
-			ZB_MILLISECONDS_TO_BEACON_INTERVAL(TEMP_HUMIDITY_CHECK_PERIOD_MSEC));
+			(zb_time_t)TEMP_HUMIDITY_CHECK_PERIOD_SEC * ZB_TIME_ONE_SECOND);
 		if (zb_err) LOG_ERR("Failed to schedule temperature & humidity check alarm: %d", zb_err);
-		else LOG_INF("Scheduled next temperature & humidity check alarm in %ds", TEMP_HUMIDITY_CHECK_PERIOD_MSEC/1000);
+		else LOG_INF("Scheduled next temperature & humidity check alarm in %ds", TEMP_HUMIDITY_CHECK_PERIOD_SEC);
 	}
 
 	// Trigger Single-Shot
@@ -587,9 +587,9 @@ static void check_battery_level(zb_bufid_t bufid){
 	if(ZB_JOINED()){
 		zb_ret_t zb_err = ZB_SCHEDULE_APP_ALARM(
 			check_battery_level, 0,
-			ZB_MILLISECONDS_TO_BEACON_INTERVAL(BATTERY_CHECK_PERIOD_MSEC));
+			(zb_time_t)BATTERY_CHECK_PERIOD_SEC * ZB_TIME_ONE_SECOND);
 		if (zb_err) LOG_ERR("Failed to schedule battery check alarm: %d", zb_err);
-		else LOG_INF("Scheduled next battery check alarm in %ds", BATTERY_CHECK_PERIOD_MSEC/1000);
+		else LOG_INF("Scheduled next battery check alarm in %ds", BATTERY_CHECK_PERIOD_SEC);
 	}
 }
 
@@ -622,15 +622,15 @@ void zboss_signal_handler(zb_bufid_t bufid){
 		
 		// Start temperature and humidity checking
 		zb_ret_t err = RET_OK;
-		err = ZB_SCHEDULE_APP_ALARM(check_temp_humidity, 0, ZB_MILLISECONDS_TO_BEACON_INTERVAL(TEMP_HUMIDITY_CHECK_INITIAL_DELAY_MSEC));
+		err = ZB_SCHEDULE_APP_ALARM(check_temp_humidity, 0, (zb_time_t)TEMP_HUMIDITY_CHECK_INITIAL_DELAY_SEC * ZB_TIME_ONE_SECOND);
 		if (err) LOG_ERR("Failed to schedule temperature & humidity check alarm: %d", err);
-		else LOG_INF("Scheduled first temperature & humidity check alarm in %d s", TEMP_HUMIDITY_CHECK_INITIAL_DELAY_MSEC/1000);
+		else LOG_INF("Scheduled first temperature & humidity check alarm in %d s", TEMP_HUMIDITY_CHECK_INITIAL_DELAY_SEC);
 
 		// Start battery level checking
 		err = RET_OK;
-		err = ZB_SCHEDULE_APP_ALARM(check_battery_level, 0,	ZB_MILLISECONDS_TO_BEACON_INTERVAL(BATTERY_CHECK_INITIAL_DELAY_MSEC));
+		err = ZB_SCHEDULE_APP_ALARM(check_battery_level, 0, (zb_time_t)BATTERY_CHECK_INITIAL_DELAY_SEC * ZB_TIME_ONE_SECOND);
 		if (err) LOG_ERR("Failed to schedule battery check alarm: %d", err);
-		else LOG_INF("Scheduled first battery check alarm in %d s", BATTERY_CHECK_INITIAL_DELAY_MSEC/1000);
+		else LOG_INF("Scheduled first battery check alarm in %d s", BATTERY_CHECK_INITIAL_DELAY_SEC);
 
 	} else if ((lastJoin == true) && (thisJoin == false)) {
 		LOG_INF ("left network!");
@@ -638,9 +638,9 @@ void zboss_signal_handler(zb_bufid_t bufid){
 		dk_set_led_on (ZIGBEE_NETWORK_STATE_LED);
 
 		zb_ret_t err = RET_OK;
-		err = ZB_SCHEDULE_APP_ALARM(attempt_rejoin, 0, ZB_MILLISECONDS_TO_BEACON_INTERVAL(REJOIN_ATTEMPT_INITIAL_DELAY_MSEC));
+		err = ZB_SCHEDULE_APP_ALARM(attempt_rejoin, 0, (zb_time_t)REJOIN_ATTEMPT_INITIAL_DELAY_SEC * ZB_TIME_ONE_SECOND);
 		if (err) LOG_ERR("Failed to schedule rejoin alarm: %d", err);
-		else LOG_INF("Scheduled first rejoin alarm in %d s", REJOIN_ATTEMPT_INITIAL_DELAY_MSEC);
+		else LOG_INF("Scheduled first rejoin alarm in %d s", REJOIN_ATTEMPT_INITIAL_DELAY_SEC);
 	}
 	lastJoin = thisJoin;
 
@@ -1079,11 +1079,11 @@ static void attempt_rejoin(zb_bufid_t bufid){
 
 		zb_ret_t zb_err = ZB_SCHEDULE_APP_ALARM(
 		attempt_rejoin, 0,
-		ZB_MILLISECONDS_TO_BEACON_INTERVAL(REJOIN_ATTEMPT_PERIOD_MSEC));
+		(zb_time_t)REJOIN_ATTEMPT_PERIOD_SEC * ZB_TIME_ONE_SECOND);
 		if (zb_err) {
 			LOG_ERR("Failed to schedule rejoin alarm: %d", zb_err);
 		}
-		else LOG_INF("Scheduled next rejoin alarm in %ds", REJOIN_ATTEMPT_PERIOD_MSEC/1000);
+		else LOG_INF("Scheduled next rejoin alarm in %ds", REJOIN_ATTEMPT_PERIOD_SEC);
 	}	
 }
 
