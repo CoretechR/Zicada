@@ -109,6 +109,7 @@ struct zb_zcl_power_attrs {
     zb_uint8_t size; // Attribute 3.3.2.2.4.2
     zb_uint8_t quantity; // Attribute 3.3.2.2.4.4
     zb_uint8_t percent_remaining; // Attribute 3.3.2.2.3.1
+    zb_uint32_t alarm_state; // Attribute 3.3.2.2.4.11 (BatteryAlarmState, map32)
 };
 
 typedef struct zb_zcl_power_attrs zb_zcl_power_attrs_t;
@@ -269,7 +270,7 @@ ZB_ZCL_DECLARE_POWER_CONFIG_BATTERY_ATTRIB_LIST_EXT(
     /*battery_percentage_threshold1=*/NULL,
     /*battery_percentage_threshold2=*/NULL,
     /*battery_percentage_threshold3=*/NULL,
-    /*battery_alarm_state=*/NULL);
+    /*battery_alarm_state=*/&dev_ctx.power_attr.alarm_state);
 
 // Cluster setup
 ZB_DECLARE_ZICADA_CLUSTER_LIST(
